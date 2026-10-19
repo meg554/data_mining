@@ -161,3 +161,64 @@ plt.setp(axes[1].get_xticklabels(), rotation=25, ha="right")
 fig.suptitle("C3. Matched-listing price changes: coverage and direction", fontsize=12, y=1.03)
 plt.tight_layout()
 plt.show()
+
+# Chart D2: common product types in Furniture and Fashion listing titles
+FURN_TYPES = {
+    "Chair": r"chair|seat(?!er)",
+    "Table": r"table",
+    "Desk": r"desk",
+    "Sofa / couch": r"sofa|couch|seater|recliner",
+    "Bed / mattress": r"\bbed|mattress",
+    "Cabinet / shelf / wardrobe": r"cabinet|shelf|shelves|wardrobe|rack|drawer",
+    "Stool / bench": r"stool|bench",
+    "Fittings / accessories": r"handle|hinge|leg|accessor",
+}
+FASH_TYPES = {
+    "T-shirt / polo / shirt": r"t-?shirt|polo|shirt|tee\b|jersey",
+    "Jacket / coat / hoodie": r"jacket|coat|hoodie|sweater|vest",
+    "Uniform / overall": r"uniform|overall|apron|coverall|suit",
+    "Dress / skirt": r"dress|skirt|gown",
+    "Trousers / shorts": r"trouser|jean|short|pant|tracksuit",
+    "Shoes": r"shoe|sneaker|boot|sandal|loafer",
+    "Cap / hat / scarf": r"\bcap|hat|scarf|beanie",
+}
+
+
+def type_share(cat, types):
+    listings = df[df["category"] == cat].drop_duplicates("listing_key")
+    titles = listings["title"].fillna("").astype(str)
+    counts = {
+        label: int(titles.str.contains(pattern, case=False, regex=True, na=False).sum())
+        for label, pattern in types.items()
+    }
+    covered = titles.str.contains(
+        "|".join(types.values()), case=False, regex=True, na=False
+    ).mean() * 100 if len(titles) else 0
+    return pd.Series(counts).sort_values(), len(listings), covered
+
+
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+for ax, (category, types) in zip(
+    axes, [("Furniture", FURN_TYPES), ("Fashion", FASH_TYPES)]
+):
+    shares, listing_count, coverage = type_share(category, types)
+    ax.barh(shares.index, shares.values, color=PAL[category])
+    for i, value in enumerate(shares.values):
+        percent = 100 * value / listing_count if listing_count else 0
+        ax.text(value + 1, i, f"{value} ({percent:.0f}%)", va="center", fontsize=8.5)
+    ax.set_xlim(0, max(shares.max() * 1.25, 1))
+    ax.set_xlabel("Unique listings whose title contains the product-type word")
+    ax.set_ylabel("Product type (keyword group)")
+    ax.set_title(
+        f"{category}: {listing_count:,} unique listings\n"
+        f"(keywords cover {coverage:.0f}% of titles; a title can match several groups)",
+        fontsize=11,
+    )
+fig.suptitle(
+    "D2. Alternative analysis - common product types in titles "
+    "(NOT brand or seller dominance)",
+    fontsize=12,
+    y=1.04,
+)
+plt.tight_layout()
+plt.show()
