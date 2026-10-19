@@ -114,3 +114,50 @@ for a, b in zip(days[:-1], days[1:]):
     })
 pairs = pd.DataFrame(rows)
 display(pairs)
+
+# Chart C3: how many listings could be compared, and how many changed price?
+fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+cc = (
+    matched.groupby(["category", "direction"])
+    .size()
+    .unstack(fill_value=0)
+    .reindex(CATS)
+    .reindex(columns=["Decrease", "No change", "Increase"], fill_value=0)
+)
+cc.plot(
+    kind="bar",
+    stacked=True,
+    ax=axes[0],
+    color=["#D55E00", "#BBBBBB", "#0072B2"],
+    width=.65,
+)
+for i, row in enumerate(cc.values):
+    run = 0
+    for value in row:
+        if value:
+            axes[0].text(i, run + value / 2, str(value), ha="center", va="center", fontsize=9)
+        run += value
+axes[0].grid(axis="x", visible=False)
+axes[1].grid(axis="x", visible=False)
+axes[0].set_xticklabels(CATS, rotation=0)
+axes[0].set_xlabel("Category")
+axes[0].set_ylabel("Matched listings (seen on >= 2 days)")
+axes[0].set_title("Direction of observed price change")
+axes[0].legend(title="", frameon=False)
+labels = [f"{start:%d %b}\u2192{end:%d %b}" for start, end in zip(pairs["from"], pairs["to"])]
+bars = axes[1].bar(labels, pairs["matched_listings"], color="#999999", width=.6)
+for bar, changed_count in zip(bars, pairs["price_changed"]):
+    axes[1].text(
+        bar.get_x() + bar.get_width() / 2,
+        bar.get_height() + 3,
+        f"{int(changed_count)} changed",
+        ha="center",
+        fontsize=9,
+    )
+axes[1].set_xlabel("Pair of consecutive collection days (2026)")
+axes[1].set_ylabel("Listings present on both days")
+axes[1].set_title("Matched listings between consecutive collection days")
+plt.setp(axes[1].get_xticklabels(), rotation=25, ha="right")
+fig.suptitle("C3. Matched-listing price changes: coverage and direction", fontsize=12, y=1.03)
+plt.tight_layout()
+plt.show()
