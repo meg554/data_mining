@@ -39,3 +39,78 @@ chg = (med.pct_change(fill_method=None) * 100).round(1); chg.index = chg.index.s
 print("Day-to-day % change in the median (blank-to-blank steps are NaN when a category is missing):"); display(chg)
 print("Range of daily medians per category (min, max, max/min):")
 print(pd.DataFrame({"min": med.min(), "max": med.max(), "max/min": med.max() / med.min()}).loc[CATS].to_string())
+
+# Matched-listing analysis: earliest vs latest observed price
+obs_sorted = df.sort_values(["listing_key", "collection_date", "scraped_dt"])
+g = obs_sorted.groupby("listing_key")
+matched = pd.DataFrame({
+    "title": g["title"].last(),
+    "category": g["category"].last(),
+    "n_days": g["collection_date"].nunique(),
+    "first_date": g["collection_date"].min(),
+    "last_date": g["collection_date"].max(),
+    "first_price": g["price_num"].first(),
+    "last_price": g["price_num"].last(),
+    "titles_seen": g["title"].nunique(),
+})
+n_all = len(matched)
+matched = matched[
+    (matched["n_days"] >= 2)
+    & matched["first_price"].notna()
+    & matched["last_price"].notna()
+].copy()
+matched["span_days"] = (matched["last_date"] - matched["first_date"]).dt.days
+matched["abs_change"] = matched["last_price"] - matched["first_price"]
+matched["pct_chg"] = np.where(
+    matched["first_price"] > 0,
+    100 * matched["abs_change"] / matched["first_price"],
+    np.nan,
+)
+matched["direction"] = np.select(
+    [matched["abs_change"] > 0, matched["abs_change"] < 0],
+    ["Increase", "Decrease"],
+    "No change",
+)
+matched_pct = 100 * len(matched) / n_all if n_all else np.nan
+print(f"Unique listings: {n_all:,} | observed on >= 2 days with prices (matched): {len(matched):,} ({matched_pct:.1f}%)")
+print("Matched listings by number of days seen:", matched["n_days"].value_counts().sort_index().to_dict())
+print(f"Matched listings whose title text differs between days (ad was edited): {int((matched['titles_seen'] > 1).sum())}")
+print("\nDirection of change (latest vs earliest observed price):")
+print(matched["direction"].value_counts().to_string())
+changed = matched[matched["direction"] != "No change"]
+changed_share = 100 * len(changed) / len(matched) if len(matched) else np.nan
+print(f"\nShare of matched listings whose price changed: {changed_share:.1f}%")
+print(f"Among changed: median % change {changed['pct_chg'].median():+.1f}% | median absolute change {changed['abs_change'].median():+,.0f} KSh")
+by_cat = matched.groupby("category").agg(
+    matched=("title", "size"),
+    changed=("direction", lambda s: int((s != "No change").sum())),
+    increases=("direction", lambda s: int((s == "Increase").sum())),
+    decreases=("direction", lambda s: int((s == "Decrease").sum())),
+    median_pct_chgd=("pct_chg", lambda s: s[s != 0].median()),
+    median_abs_changed=("abs_change", lambda s: s[s != 0].median()),
+).reindex(CATS)
+by_cat["share_changed_%"] = 100 * by_cat["changed"] / by_cat["matched"]
+display(by_cat)
+
+# Day-to-day matched comparison: the same listing on consecutive collected days
+rows = []
+days = sorted(df["collection_date"].dropna().unique())
+piv = df.pivot_table(
+    index="listing_key",
+    columns="collection_date",
+    values="price_num",
+    aggfunc="last",
+)
+for a, b in zip(days[:-1], days[1:]):
+    both = piv[[a, b]].dropna()
+    ch = both[b].div(both[a]).sub(1).where(both[a] != 0)
+    rows.append({
+        "from": pd.Timestamp(a).date(),
+        "to": pd.Timestamp(b).date(),
+        "matched_listings": len(both),
+        "price_changed": int((both[b] != both[a]).sum()),
+        "median_%_change_all_matched": 100 * ch.median(),
+        "median_%_change_changed_only": 100 * ch[ch.notna() & (both[b] != both[a])].median(),
+    })
+pairs = pd.DataFrame(rows)
+display(pairs)
